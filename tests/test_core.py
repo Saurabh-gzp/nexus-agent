@@ -1240,11 +1240,8 @@ class TestGreetingIdentityFastPath:
             assert IDENTITY_Q.search(q), q
 
     def test_intro_is_clean_no_router(self):
-        from nexus.orchestrator.engine import NEXUS_INTRO, GREETING_REPLIES
+        from nexus.orchestrator.engine import NEXUS_INTRO
         assert "Nexus" in NEXUS_INTRO and "ROUTER" not in NEXUS_INTRO
-        assert all(g.strip() for g in GREETING_REPLIES)
-        assert not any(w in g for g in GREETING_REPLIES
-                       for w in ("ROUTER", "SUPERVISOR", "AGENT_"))
 
 
 # ============ v1.4.2: workspace-clean disaster fixes ==================

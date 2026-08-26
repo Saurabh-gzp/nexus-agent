@@ -125,7 +125,11 @@ class LLMClient:
             for idx, m in enumerate(chain):
                 if not m:
                     continue
-                if self._is_large(m) and not self._allow_large(task_id):
+                # Never skip the role's PRIMARY model — budget only applies to
+                # later chain entries (true large / last-resort models).
+                # Skipping medium-2508 here was why SYNTHESIZE jumped to
+                # medium-latest after one call despite a full key pool.
+                if idx > 0 and self._is_large(m) and not self._allow_large(task_id):
                     self.notify("warn", f"Large-model budget exhausted, skipping {m}")
                     continue
                 self.limiter.wait(m, self.config.rate_limit(m))
@@ -225,7 +229,10 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def _is_large(self, model: str) -> bool:
-        return model == self.config.model_for("hard_fallback")
+        # Only truly expensive IDs. hard_fallback is often medium-2508 (the
+        # intended primary) — treating that as "large" skipped the best model.
+        name = (model or "").lower()
+        return "large" in name and "medium" not in name
 
     def _allow_large(self, task_id: str) -> bool:
         cap = int(self.config.get("autonomy.large_model_calls_per_task", 1))

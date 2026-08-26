@@ -236,7 +236,10 @@ class SupervisorAgent(BaseAgent):
 
     def plan(self, goal: str, context: str = "", failure_note: str = "") -> Dict[str, Any]:
         skills = self.ctx.skills.catalog() if self.ctx.skills else ""
-        kb = self.ctx.rag.context_for(goal, max_chars=2500) if self.ctx.rag else ""
+        # Short / replan: RAG of leftover workspace files hijacks the goal
+        # (live: 'ilogy' → frontend_design_research.md → portfolio website).
+        use_rag = bool(self.ctx.rag) and not failure_note and len((goal or "").split()) >= 4
+        kb = self.ctx.rag.context_for(goal, max_chars=2500) if use_rag else ""
         blocks = [f"GOAL:\n{goal}"]
         if context:
             blocks.append(f"CONTEXT:\n{context[:2500]}")
@@ -245,7 +248,11 @@ class SupervisorAgent(BaseAgent):
         if kb:
             blocks.append(kb[:2000])
         if failure_note:
-            blocks.append(f"PREVIOUS ATTEMPT FAILED — fix the plan:\n{failure_note[:1500]}")
+            blocks.append(
+                "REPLAN CONSTRAINT: keep the SAME user goal. Do NOT invent a "
+                "different project (portfolio/website/hosting) unless the goal "
+                f"explicitly asks for it.\nPREVIOUS ATTEMPT FAILED:\n{failure_note[:1500]}"
+            )
         blocks.append(f"Workspace: {self.config.workspace}")
 
         prompt = "\n\n".join(blocks)

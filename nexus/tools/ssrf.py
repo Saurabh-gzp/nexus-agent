@@ -28,10 +28,12 @@ def url_blocked(url: str) -> str:
             ip = ipaddress.ip_address(ip_s)
         except ValueError:
             continue
+        # is_site_local was removed in Python 3.13 — do not call it.
+        site_local = bool(getattr(ip, "is_site_local", False))
         if (
             ip.is_private or ip.is_loopback or ip.is_link_local
             or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-            or ip.is_site_local
+            or site_local
         ):
             return f"blocked address: {ip}"
         if ip_s.startswith("169.254."):

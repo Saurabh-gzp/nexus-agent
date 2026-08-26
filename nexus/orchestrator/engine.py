@@ -30,7 +30,8 @@ ACTION_VERB = _re.compile(
     r"modify|update|rename|move|copy|fix|refactor|install|deploy|publish|send|"
     r"email|post|upload|download|scrape|crawl|automate|schedule|convert|"
     r"compress|migrate|save|"
-    r"store|record|todo)\b", _re.I)
+    r"store|record|todo|"
+    r"search|research|google|lookup|look\s*up|find|fetch)\b", _re.I)
 DIRECT_SAFE_INTENTS = {"chat", "question"}
 ACTION_CLAIM = _re.compile(
     r"\b(deleted|removed|created|wrote|built|saved|i\s?have|i've|done)\b", _re.I)
@@ -53,7 +54,8 @@ LIVE_Q = _re.compile(
 #  when the goal references it or has 3+ words.)
 GREETING_RE = _re.compile(
     r"^\s*(h+e+y+|hy+|hi+|hello+|yo+|sup|hola|"
-    r"hii+|good\s?(morning|afternoon|evening|night|night))\s*[!.,?]*\s*$", _re.I)
+    r"hii+|good\s?(morning|afternoon|evening|night))"
+    r"(\s+(bro|bhai|yaar|there|dude|mate))?\s*[!.,?]*\s*$", _re.I)
 FOLLOWUP_REF = _re.compile(
     r"\b(it|this|that|continue|"
     r"again|repeat|same|to)\b", _re.I)
@@ -80,12 +82,6 @@ NEXUS_INTRO = (
     "- Device checks (battery, storage, network)\n"
     "- Remember things (memory)\n\n"
     "Just tell me what to do — I'll plan it and get it done.")
-GREETING_REPLIES = [
-    "Hey! 😄 I'm Nexus — what are we working on today?",
-    "Hi! Nexus here 💪 Code, research, files, automation — what do you need?",
-    "Hello! How's it going? Give me a task and watch it get done.",
-    "Yo! Ready when you are — drop a task and let's go ⚡",
-]
 
 # Calculator-style math never goes through the LLM — deterministic Python.
 MATH_EXPR = _re.compile(r"^[\s\d+\-*/×÷%^().,]+$")
@@ -120,6 +116,34 @@ def quick_math(goal: str) -> Optional[str]:
     return None
 
 
+def looks_like_noise(goal: str) -> bool:
+    """1–3 token garbage / typo / unknown token — not an action request.
+
+    Live: 'ilogy' was treated as an action → 4-task research + replan into
+    a leftover portfolio site. That must never happen.
+    """
+    g = (goal or "").strip()
+    if not g or len(g) > 40:
+        return False
+    words = g.split()
+    if len(words) > 3:
+        return False
+    if words[0].lower() in {
+        "search", "research", "google", "find", "fetch", "lookup",
+        "build", "make", "create", "write", "fix", "run",
+    }:
+        return False
+    if ACTION_VERB.search(g) or DEVICE_Q.search(g) or LIVE_Q.search(g):
+        return False
+    if MATH_HAS_OP.search(g) or IDENTITY_Q.search(g) or GREETING_RE.match(g):
+        return False
+    if SESSION_Q.search(g) or CHECK_FOLLOW.match(g) or DROP_THIS.search(g):
+        return False
+    if "/" in g or g.startswith("-") or any(w.endswith((".py", ".md", ".html")) for w in words):
+        return False
+    return True
+
+
 def router_guard(goal: str, decision: Dict[str, Any]) -> tuple:
     """Deterministic harness rule over the router LLM's decision.
 
@@ -130,12 +154,19 @@ def router_guard(goal: str, decision: Dict[str, Any]) -> tuple:
     d = dict(decision or {})
     intent = str(d.get("intent", "unclear")).lower()
     direct = str(d.get("direct_answer") or "").strip()
+    # Casual / short / unclear with no action verb: NEVER force a DAG.
+    # Do not invent a canned "not sure what X means" — the router LLM replies.
+    if looks_like_noise(goal) and not ACTION_VERB.search(goal):
+        d["needs_orchestration"] = False
+        d["intent"] = "chat"
+        d["complexity"] = "trivial"
+        return d, False
     unsafe = (intent not in DIRECT_SAFE_INTENTS
               or bool(ACTION_VERB.search(goal))
-              or bool(DEVICE_Q.search(goal))          # device/system question
-              or bool(LIVE_Q.search(goal))            # live info — needs web
+              or bool(DEVICE_Q.search(goal))
+              or bool(LIVE_Q.search(goal))
               or bool(ACTION_CLAIM.search(direct))
-              or bool(MATH_HAS_OP.search(goal)))      # arithmetic — the LLM gets it wrong
+              or bool(MATH_HAS_OP.search(goal)))
     if unsafe and (direct or not d.get("needs_orchestration")):
         d["needs_orchestration"] = True
         d["direct_answer"] = ""
@@ -216,26 +247,7 @@ class Orchestrator:
 
         # ---- fast path 0: greeting / identity — instant, deterministic,
         #      always in the user's own script, zero LLM calls
-        import random as _rnd
         if not force_orchestration:
-            if (IDENTITY_Q.search(goal) and len(goal.split()) <= 12
-                    and not ACTION_VERB.search(goal)):
-                self.ui.phase("CHAT", "hello! 👋")
-                report = RunReport(goal=goal, task_id=task_id,
-                                   final=NEXUS_INTRO, ok=True, verified=True,
-                                   elapsed=time.time() - t0)
-                if self.ctx.memory:
-                    self.ctx.memory.add_message("assistant", NEXUS_INTRO, "nexus")
-                return report
-            if GREETING_RE.match(goal):
-                reply = _rnd.choice(GREETING_REPLIES)
-                self.ui.phase("CHAT", "hello! 👋")
-                report = RunReport(goal=goal, task_id=task_id,
-                                   final=reply, ok=True, verified=True,
-                                   elapsed=time.time() - t0)
-                if self.ctx.memory:
-                    self.ctx.memory.add_message("assistant", reply, "nexus")
-                return report
             if SESSION_Q.search(goal.strip()) or CHECK_FOLLOW.match(goal.strip()):
                 n, listing = self._session_listing()
                 reply = f"**{n} session(s)**\n{listing}" if listing else f"**{n} session(s)**"
@@ -294,9 +306,10 @@ class Orchestrator:
                           "(action requests cannot be answered without doing them)")
         self.ui.route_info(decision)
 
-        if (not force_orchestration and not decision.get("needs_orchestration")
-                and decision.get("direct_answer")):
-            answer = decision["direct_answer"]
+        if not force_orchestration and not decision.get("needs_orchestration"):
+            answer = str(decision.get("direct_answer") or "").strip()
+            if not answer:
+                answer = self._live_chat(goal)
             report.final, report.ok, report.verified = answer, True, True
             report.elapsed = time.time() - t0
             report.tokens = self.ctx.llm.stats.snapshot().get("total_tokens", 0) - tok0
@@ -348,7 +361,16 @@ class Orchestrator:
             report.replans += 1
             note = "\n".join(f"- {t.title}: {t.error or t.verdict}" for t in failed)
             self.ui.phase("REPLAN", f"{len(failed)} task(s) failed — attempt {report.replans}")
-            plan = self.supervisor.plan(goal, mem_ctx, failure_note=note)
+            # NEVER inject old session/RAG memory here — live: 'ilogy' replan
+            # became a portfolio website from leftover workspace docs.
+            if looks_like_noise(goal):
+                self.ui.event("warn", "short/unclear goal — stop instead of inventing a new project")
+                break
+            replan_ctx = (
+                f"USER GOAL (do not change, do not invent a different project): {goal}\n"
+                "If this goal is a single unknown word, ask the user — do NOT build a website."
+            )
+            plan = self.supervisor.plan(goal, replan_ctx, failure_note=note)
             report.plan = plan
             new_dag = TaskDAG.from_plan(plan)
             # carry over successful work as context
@@ -955,6 +977,20 @@ class Orchestrator:
             (d / f"{task_id}.json").write_text(_json.dumps(payload)[:200000], encoding="utf-8")
         except Exception:
             pass
+
+    def _live_chat(self, goal: str) -> str:
+        """Real Nexus reply — no canned templates."""
+        sys = (
+            "You are Nexus, a personal autonomous agent on the user's device. "
+            "This is casual chat or slang. Reply as a smart friend. "
+            "Match the user's language and script (Roman Hindi stays Roman). "
+            "1-3 short lines. Never mention router/supervisor/tools/pipeline. "
+            "Never use the phrase 'typo, a search, or a project name'."
+        )
+        try:
+            return (self.ctx.llm.ask("router", goal, system=sys) or "").strip()
+        except Exception:
+            return ""
 
     def cancel(self) -> None:
         self.cancelled = True

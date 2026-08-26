@@ -38,17 +38,25 @@ class MistralProvider(BaseProvider):
         """POST with automatic key rotation."""
         tried: set = set()
         last_err: Optional[ProviderError] = None
-        # v1.8.2: NO artificial rotation cap — every key in the ring gets tried,
-        # and if all are cooling the ring waits (≤45s) and retries the soonest.
-        # The agent can never hit "no keys left"; it only pauses briefly.
-        rotations = max(len(self.keyring) or 1, 1)
+        # Two full walks of EVERY key, then give up (caller may model-fallback).
+        # Pass 1: keys 1..N. Pass 2: same keys again. Never jump to a weaker
+        # model after a single 429.
+        n_keys = max(len(self.keyring) or 1, 1)
+        ring_passes = 2
+        rotations = n_keys * ring_passes
         call_t0 = time.time()
         # whole-call wall-clock cap: timeout for one good generation +
-        # slack for failing over the remaining keys. Configurable so tests
-        # can shrink it.
-        call_budget = self.timeout + self.watchdog_budget_slack
+        # slack for failing over the remaining keys (×2 passes).
+        call_budget = self.timeout + self.watchdog_budget_slack * ring_passes
 
         for attempt in range(rotations):
+            if attempt == n_keys:
+                tried.clear()
+                self.notify(
+                    "warn",
+                    f"All {n_keys} key(s) failed on this model — second full pass "
+                    "before any model fallback",
+                )
             # v1.8.4: honest stop — if no key has been healthy for 90s+, the
             # quota is gone (not a storm). Raise instead of spinning in circles.
             if self.keyring.healthy_count == 0:

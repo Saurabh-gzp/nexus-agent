@@ -71,6 +71,25 @@ BANNER = r"""
 BANNER_SMALL = "◤ N E X U S ◢"
 
 
+def _fmt_dur(seconds: float) -> str:
+    """Never show a fake 0.0s for a real call (sub-100ms used to round away)."""
+    try:
+        s = float(seconds or 0.0)
+    except (TypeError, ValueError):
+        s = 0.0
+    if s < 0:
+        s = 0.0
+    if s < 0.005:
+        return "0ms"
+    if s < 1.0:
+        return f"{int(round(s * 1000))}ms"
+    if s < 60:
+        return f"{s:.1f}s"
+    m = int(s // 60)
+    rem = s - m * 60
+    return f"{m}m{rem:04.1f}s"
+
+
 class Tick:
     """Live processing indicator + elapsed timer.
 
@@ -88,8 +107,7 @@ class Tick:
 
     def _render(self) -> None:
         el = time.time() - self._t0
-        m, s = int(el) // 60, int(el) % 60
-        base = f"{self.label} · {m}:{s:02d}" if m else f"{self.label} · {s}s"
+        base = f"{self.label} · {_fmt_dur(el)}"
         txt = f"[muted]{base} · Ctrl+C = stop[/]"
         try:
             self._sp.update(txt)
@@ -105,7 +123,7 @@ class Tick:
         if self.console.is_terminal:
             self._t0 = time.time()
             self._sp = self.console.status(
-                f"[muted]{self.label} · 0s · Ctrl+C = stop[/]", spinner="dots")
+                f"[muted]{self.label} · 0ms · Ctrl+C = stop[/]", spinner="dots")
             self._sp.start()
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
@@ -292,7 +310,7 @@ class UI:
                     arg = str(step.args[k])[:52]
                     break
             self.console.print(f"    {mark} [tool]{step.tool}[/] [muted]{arg}[/] "
-                               f"[muted]{step.duration:.1f}s[/]")
+                               f"[muted]{_fmt_dur(step.duration)}[/]")
             if not step.ok and step.content:
                 err_line = next((l for l in str(step.content).splitlines()
                                  if l.strip()), "")[:90]
@@ -312,7 +330,7 @@ class UI:
         col = {"done": "ok", "failed": "err", "blocked": "err", "skipped": "muted"}.get(
             task.status.value, "muted")
         self.console.print(f"  [{col}]{icon} {task.id} {task.status.value}[/] "
-                           f"[muted]{task.elapsed:.1f}s · {task.tokens} tok"
+                           f"[muted]{_fmt_dur(task.elapsed)} · {task.tokens} tok"
                            + (f" · {task.error[:50]}" if task.error else "") + "[/]")
 
     # ---------------- output ----------------
@@ -326,7 +344,7 @@ class UI:
 
     def stats_line(self, report) -> None:
         self.console.print(
-            f"[muted]⏱ {report.elapsed:.1f}s · {len(report.tasks)} tasks · "
+            f"[muted]⏱ {_fmt_dur(report.elapsed)} · {len(report.tasks)} tasks · "
             f"{report.tokens} tokens · replans {report.replans} · "
             f"{'verified' if report.verified else 'unverified'}[/]")
 

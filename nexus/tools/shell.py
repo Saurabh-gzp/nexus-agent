@@ -428,7 +428,9 @@ class ShellTools:
         # Live Termux: start_server(path='projects/foo') glued onto the port
         # as `http.server 8000projects`. Treat a non-URL `path` as a folder.
         pth = str(path or "/")
-        if pth and not pth.startswith("/") and ("/" in pth or pth.startswith("projects")):
+        # Any relative path (demo, projects/foo) is a FOLDER, not a URL suffix.
+        # Otherwise fetch becomes http://127.0.0.1:47147demo (invalid port).
+        if pth and not pth.startswith("/"):
             directory = directory or pth
             path = "/"
         cmd0 = (command or "").strip()
