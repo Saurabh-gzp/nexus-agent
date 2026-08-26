@@ -604,7 +604,7 @@ class Orchestrator:
             self.ui.event("ok", f"{task.id}: harness hosted + verified ({port})")
             task.output = (task.output or "") + "\n\n[HARNESS-EXECUTED HOSTING]\n" + out[:800]
             return True
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError, RuntimeError) as e:
             self.ui.event("warn", f"{task.id}: harness hosting error: {e}")
             return False
 
