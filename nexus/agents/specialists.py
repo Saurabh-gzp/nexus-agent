@@ -15,6 +15,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from ..core.jsonutil import extract_field, extract_json
+from ..providers.base import ProviderError
 from .base import AgentOutcome, BaseAgent
 
 READ_ONLY = ["read_file", "list_dir", "search_files", "find_files", "load_skill",
@@ -93,7 +94,7 @@ class RouterAgent(BaseAgent):
         try:
             raw = self.llm.ask(self.role_key, prompt, system=self.system_prompt,
                                response_format={"type": "json_object"})
-        except Exception:
+        except (ProviderError, RuntimeError, ValueError):
             try:
                 raw = self.llm.ask(self.role_key, prompt, system=self.system_prompt)
             except Exception as e:  # noqa: BLE001
@@ -257,7 +258,7 @@ class SupervisorAgent(BaseAgent):
             try:
                 raw = self.llm.ask(self.role_key, prompt, system=self.PLAN_SYSTEM,
                                    response_format={"type": "json_object"})
-            except Exception:
+            except (ProviderError, RuntimeError, ValueError):
                 try:
                     raw = self.llm.ask(self.role_key, prompt, system=self.PLAN_SYSTEM)
                 except Exception as e:  # noqa: BLE001
