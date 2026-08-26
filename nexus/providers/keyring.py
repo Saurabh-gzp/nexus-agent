@@ -160,20 +160,18 @@ class KeyRing:
             wait = max(0.0, soonest.cooldown_until - time.time())
         if wait > max_wait:
             self.notify("warn",
-                        f"All keys busy; using {soonest.label} early "
-                        f"(would need {int(wait)}s rest)")
-            with self._lock:
-                soonest.state = KeyState.HEALTHY
-                soonest.cooldown_until = 0.0
-            return soonest
+                        f"All keys cooling {int(wait)}s > max_wait {int(max_wait)}s "
+                        f"— not forcing {soonest.label} healthy (honest pause)")
+            return None
         if wait > 0:
             self.notify("warn", f"All keys cooling — waiting {wait:.0f}s for {soonest.label}")
             time.sleep(wait + 0.25)
         with self._lock:
-            soonest.state = KeyState.HEALTHY
-            soonest.cooldown_until = 0.0
+            if time.time() >= soonest.cooldown_until:
+                soonest.state = KeyState.HEALTHY
+                soonest.cooldown_until = 0.0
             soonest.last_used = time.time()
-        return soonest
+        return soonest if soonest.available() else None
 
     # ------------------------------------------------------------------
     def report_success(self, key: ApiKey, tokens: int = 0) -> None:

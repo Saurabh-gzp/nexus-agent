@@ -5,7 +5,7 @@
 
 app:
   name: "Nexus"
-  version: "1.9.0"
+  version: "1.9.3"
   workspace: "./workspace"          # agent ka sandbox / project directory
   data_dir: "./.nexus"              # db, vectors, logs, sessions
   theme: "cocoa"                    # cyber | mono | matrix

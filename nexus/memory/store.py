@@ -60,7 +60,7 @@ class MemoryStore:
         return sid
 
     def resume_session(self, sid: str) -> bool:
-        row = self.conn.execute("SELECT id FROM sessions WHERE id=?", (sid,)).fetchone()
+        row = self._exec("SELECT id FROM sessions WHERE id=?", (sid,)).fetchone()
         if row:
             self.session_id = sid
             return True
@@ -79,7 +79,7 @@ class MemoryStore:
         if not ref:
             return None
         # 1) exact id first (a 12-char hex id may be all digits)
-        if self.conn.execute("SELECT id FROM sessions WHERE id=?",
+        if self._exec("SELECT id FROM sessions WHERE id=?",
                              (ref,)).fetchone():
             return ref
         # 2) number (as shown by /sessions, newest first)
@@ -92,17 +92,21 @@ class MemoryStore:
                 return rows[n - 1]["id"]
             # out-of-range number → fall through to prefix matching below
         # 3) id prefix (e.g. "/resume debf")
-        row = self.conn.execute(
+        row = self._exec(
             "SELECT id FROM sessions WHERE id LIKE ? ORDER BY updated DESC LIMIT 1",
             (ref + "%",)).fetchone()
         return row["id"] if row else None
 
     def latest_session(self) -> Optional[str]:
-        row = self.conn.execute("SELECT id FROM sessions ORDER BY updated DESC LIMIT 1").fetchone()
+        row = self._exec("SELECT id FROM sessions ORDER BY updated DESC LIMIT 1").fetchone()
         return row["id"] if row else None
 
+    def _exec(self, sql: str, args: tuple = ()):
+        with self._lock:
+            return self.conn.execute(sql, args)
+
     def list_sessions(self, limit: int = 20) -> List[dict]:
-        rows = self.conn.execute(
+        rows = self._exec(
             "SELECT s.id, s.title, s.goal, s.created, s.status, "
             "(SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS msgs "
             "FROM sessions s ORDER BY s.updated DESC LIMIT ?", (limit,)).fetchall()
@@ -124,7 +128,7 @@ class MemoryStore:
         sid = session_id or self.session_id
         if not sid:
             return []
-        rows = self.conn.execute(
+        rows = self._exec(
             "SELECT role, content, agent, created FROM messages WHERE session_id=? "
             "ORDER BY id DESC LIMIT ?", (sid, limit)).fetchall()
         return [dict(r) for r in reversed(rows)]
@@ -150,7 +154,7 @@ class MemoryStore:
                 pass
 
     def past_tasks(self, limit: int = 10) -> List[dict]:
-        rows = self.conn.execute(
+        rows = self._exec(
             "SELECT id,title,agent,status,score,created FROM tasks ORDER BY created DESC LIMIT ?",
             (limit,)).fetchall()
         return [dict(r) for r in rows]
@@ -179,7 +183,7 @@ class MemoryStore:
             q += " WHERE kind=?"
             args = (kind,)
         q += " ORDER BY importance DESC, created DESC LIMIT ?"
-        rows = self.conn.execute(q, args + (limit,)).fetchall()
+        rows = self._exec(q, args + (limit,)).fetchall()
         return [dict(r) for r in rows]
 
     def forget(self, kind: str, key: str) -> bool:
@@ -211,7 +215,7 @@ class MemoryStore:
 
     def stats(self) -> dict:
         def c(t: str) -> int:
-            return int(self.conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
+            return int(self._exec(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
         return {"sessions": c("sessions"), "messages": c("messages"),
                 "tasks": c("tasks"), "facts": c("facts"), "current": self.session_id}
 

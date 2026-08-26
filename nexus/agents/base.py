@@ -254,7 +254,7 @@ class BaseAgent:
             final = self.llm.chat(self.role_key, messages, task_id=task_id, model=model)
             tokens += final.total_tokens
             steps.append(AgentStep(budget, "answer", final.content))
-            return AgentOutcome(self.agent_name, True, final.content, steps, tokens,
+            return AgentOutcome(self.agent_name, False, final.content or "", steps, tokens,
                                 final.model, time.time() - t0, error="step budget reached")
         except Exception as e:  # noqa: BLE001
             return AgentOutcome(self.agent_name, False, self._partial(steps), steps, tokens,

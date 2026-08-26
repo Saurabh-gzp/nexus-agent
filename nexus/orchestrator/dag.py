@@ -95,7 +95,6 @@ class TaskDAG:
             t = self.tasks[tid]
             for dep in list(t.depends_on):
                 if dep not in self.tasks:
-                    t.depends_on.remove(dep)
                     continue
                 s = state.get(dep, 0)
                 if s == 1:
@@ -109,6 +108,10 @@ class TaskDAG:
             if state.get(tid, 0) == 0:
                 visit(tid)
         return removed
+
+    def dangling(self) -> List[str]:
+        return [f"{t.id}->{d}" for t in self.tasks.values()
+                for d in t.depends_on if d not in self.tasks]
 
     def ready(self, max_n: int = 3) -> List[Task]:
         """Tasks whose deps are all done; respects parallel_safe."""

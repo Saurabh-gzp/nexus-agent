@@ -88,9 +88,6 @@ class Session:
         if not quiet:
             self.snapshot(f"TIMEOUT-{pattern[:30]}")
         return False
-        if not quiet:
-            self.snapshot(f"TIMEOUT-{pattern[:30]}")
-        return False
 
     def send(self, line, newline=True):
         data = line.encode() + (b"\r" if newline else b"")

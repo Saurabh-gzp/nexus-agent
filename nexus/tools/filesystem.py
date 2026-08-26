@@ -5,10 +5,10 @@ import fnmatch
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
 from typing import List, Optional
 
 from .base import Risk, ToolRegistry, ToolResult
+from .paths import in_workspace
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".nexus",
              "dist", "build", ".next", ".cache", "target", ".idea"}
@@ -31,7 +31,7 @@ class FileSystemTools:
             self.write_scope = None
         else:
             p = (self.root / subdir).resolve()
-            if str(p).startswith(str(self.root)):
+            if in_workspace(p, self.root):
                 p.mkdir(parents=True, exist_ok=True)
                 self.write_scope = p
 
@@ -46,7 +46,7 @@ class FileSystemTools:
                 rel = rel.relative_to(rel.parts[0])
             p = self.root / rel
         p = p.resolve()
-        if self.sandbox and str(p).startswith(str(self.root)) and not p.exists():
+        if self.sandbox and in_workspace(p, self.root) and not p.exists():
             # Absolute paths with the same doubled prefix ("/ws/workspace/x")
             # that do NOT exist -> point at the de-duplicated location.
             try:
@@ -56,11 +56,11 @@ class FileSystemTools:
                     parts = parts[1:]
                 if parts != rel.parts:
                     cand = (self.root / Path(*parts)).resolve()
-                    if str(cand).startswith(str(self.root)):
+                    if in_workspace(cand, self.root):
                         p = cand
             except ValueError:
                 pass
-        if self.sandbox and not str(p).startswith(str(self.root)):
+        if self.sandbox and not in_workspace(p, self.root):
             raise PermissionError(f"Path outside workspace sandbox: {p}")
         return p
 
@@ -78,8 +78,7 @@ class FileSystemTools:
         """with write_scope active, new writes go inside the project folder only."""
         if self.write_scope is None:
             return True
-        ps, ws = str(p), str(self.write_scope)
-        return ps == ws or ps.startswith(ws + "/")
+        return in_workspace(p, self.write_scope)
 
     def _rel(self, p: Path) -> str:
         try:

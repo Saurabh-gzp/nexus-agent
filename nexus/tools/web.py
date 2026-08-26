@@ -32,6 +32,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from .base import Risk, ToolRegistry, ToolResult
+from .ssrf import SafeRedirect, url_blocked
 
 UA_MOBILE = ("Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 "
              "(KHTML, like Gecko) Chrome/122.0 Mobile Safari/537.36")
@@ -55,8 +56,12 @@ def _get(url: str, timeout: int = 25, data: Optional[bytes] = None,
         h["Content-Type"] = "application/x-www-form-urlencoded"
     if headers:
         h.update(headers)
+    why = url_blocked(url)
+    if why:
+        raise PermissionError(why)
     req = urllib.request.Request(url, data=data, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    opener = urllib.request.build_opener(SafeRedirect)
+    with opener.open(req, timeout=timeout) as r:
         raw = r.read()
     for enc in ("utf-8", "latin-1"):
         try:
@@ -408,6 +413,9 @@ class WebTools:
     def web_fetch(self, url: str, max_chars: int = 0) -> ToolResult:
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
+        why = url_blocked(url)
+        if why:
+            return ToolResult(False, error=f"SSRF blocked: {why}")
         body = ""
         last_err = ""
         # attempt 1: mobile UA (default), attempt 2: desktop UA (some sites 403 mobile)
@@ -425,7 +433,8 @@ class WebTools:
             except json.JSONDecodeError:
                 pass
         if not body:
-            # last chance: reader proxy (best-effort, no key)
+            if url_blocked(url):
+                return ToolResult(False, error=f"Fetch failed for {url}: {last_err}")
             try:
                 body = _get("https://r.jina.ai/" + url, timeout=25, ua=UA_DESKTOP)
             except Exception as e:  # noqa: BLE001
@@ -444,12 +453,16 @@ class WebTools:
     def http_request(self, url: str, method: str = "GET", body: str = "",
                      headers_json: str = "") -> ToolResult:
         try:
+            why = url_blocked(url if url.startswith("http") else "https://" + url)
+            if why:
+                return ToolResult(False, error=f"SSRF blocked: {why}")
             hdr = {"User-Agent": UA}
             if headers_json:
                 hdr.update(json.loads(headers_json))
             data = body.encode() if body else None
             req = urllib.request.Request(url, data=data, headers=hdr, method=method.upper())
-            with urllib.request.urlopen(req, timeout=30) as r:
+            opener = urllib.request.build_opener(SafeRedirect)
+            with opener.open(req, timeout=30) as r:
                 out = r.read().decode("utf-8", "ignore")[:8000]
                 return ToolResult(True, output=f"HTTP {r.status}\n{out}")
         except Exception as e:  # noqa: BLE001

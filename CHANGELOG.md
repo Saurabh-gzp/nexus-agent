@@ -311,3 +311,20 @@ instructions); `--update` mode keeps keys. Entire codebase now English-only.
 - Quota-based roles (medium-2508 / small-2603, not 8B primary)
 - start_server path vs URL; Termux chat fast-paths; `/` menu default on
 - Duplicate failed tool-call diagnosis; git_status/diff/log tools
+
+## 1.9.1
+- start_server: argv-only python -m http.server; reject rm/curl/traversal
+- SSRF block + redirect revalidation on web_fetch/http_request
+- Path sandbox uses relative_to (not startswith)
+- Destructive SQL classified as delete_files (approval)
+- partial/timeout no longer count as success; no invented project on fix-only goals
+- Dangling DAG deps trigger fallback replan
+
+## 1.9.2
+- OpenAI-compatible urlopen watchdog (shared httpwatch)
+- acquire_or_wait never force-healthy before Retry-After
+- Memory/RAG SQLite reads under the same lock
+
+## 1.9.3
+- git_add / git_commit (local only, path-sandboxed)
+- DAG checkpoint JSON after every task

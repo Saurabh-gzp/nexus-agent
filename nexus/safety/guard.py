@@ -70,6 +70,10 @@ class SafetyGuard:
                          r"\.unlink\s*\(|send2trash|os\.renames?\s*\(.+,\s*[\"'']/dev/null)", code) \
                     or re.search(r"\brm\s+-[a-z]*\b", code):
                 return "delete_files"
+        if tool_name == "sqlite_exec":
+            sql = str(args.get("sql", "")).lower()
+            if re.search(r"\b(drop|delete|alter|truncate|attach|detach)\b", sql):
+                return "delete_files"
         if tool_name == "http_request":
             url = str(args.get("url", "")).lower()
             method = str(args.get("method", "GET")).upper()

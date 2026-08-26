@@ -111,18 +111,21 @@ class VectorStore:
 
     def count(self, collection: Optional[str] = None) -> int:
         q = "SELECT COUNT(*) FROM chunks" + (" WHERE collection=?" if collection else "")
-        cur = self._conn.execute(q, (collection,) if collection else ())
-        return int(cur.fetchone()[0])
+        with self._lock:
+            cur = self._conn.execute(q, (collection,) if collection else ())
+            return int(cur.fetchone()[0])
 
     def sources(self) -> List[Tuple[str, int]]:
-        cur = self._conn.execute(
-            "SELECT source, COUNT(*) FROM chunks GROUP BY source ORDER BY 2 DESC")
-        return list(cur.fetchall())
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT source, COUNT(*) FROM chunks GROUP BY source ORDER BY 2 DESC")
+            return list(cur.fetchall())
 
     def has_source(self, source: str, mtime: Optional[float] = None) -> bool:
-        cur = self._conn.execute(
-            "SELECT meta FROM chunks WHERE source=? LIMIT 1", (source,))
-        row = cur.fetchone()
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT meta FROM chunks WHERE source=? LIMIT 1", (source,))
+            row = cur.fetchone()
         if not row:
             return False
         if mtime is None:
@@ -208,9 +211,10 @@ class VectorStore:
         if not toks:
             return []
         like = " OR ".join(["text LIKE ?"] * len(toks))
-        rows = self._conn.execute(
-            f"SELECT id, source, text, meta FROM chunks WHERE {like} LIMIT 200",
-            tuple(f"%{t}%" for t in toks)).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id, source, text, meta FROM chunks WHERE {like} LIMIT 200",
+                tuple(f"%{t}%" for t in toks)).fetchall()
         scored = []
         for cid, src, text, meta in rows:
             tl = text.lower()

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from .base import Risk, ToolRegistry, ToolResult
+from .paths import in_workspace
 
 
 def _ensure(mod: str, pip_name: Optional[str] = None) -> Any:
@@ -31,7 +32,7 @@ class OfficeTools:
         if not p.is_absolute():
             p = self.root / p
         p = p.resolve()
-        if not str(p).startswith(str(self.root)):
+        if not in_workspace(p, self.root):
             raise ValueError("path escapes workspace")
         p.parent.mkdir(parents=True, exist_ok=True)
         return p

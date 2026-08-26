@@ -11,6 +11,7 @@ import urllib.request
 from typing import Any, Dict, Iterator, List, Optional
 
 from .base import BaseProvider, ChatResult, ProviderError
+from .httpwatch import json_watchdog
 
 
 class OpenAICompatibleProvider(BaseProvider):
@@ -24,13 +25,20 @@ class OpenAICompatibleProvider(BaseProvider):
         self.base_url = cfg.get("base_url", "https://api.openai.com/v1").rstrip("/")
         self.timeout = int(cfg.get("timeout", 180))
         self.static_key = cfg.get("api_key")   # for local servers (ollama)
+        self.watchdog_budget_slack = int(cfg.get("watchdog_budget_slack", 90))
+        self.watchdog_grace = int(cfg.get("watchdog_grace", 5))
 
     def _request(self, path: str, payload: dict) -> Dict[str, Any]:
         tried: set = set()
         last: Optional[ProviderError] = None
         rounds = max(2, len(self.keyring) * 2 or 2)
+        call_t0 = time.time()
+        call_budget = self.timeout + self.watchdog_budget_slack
 
         for attempt in range(rounds):
+            remaining = call_budget - (time.time() - call_t0)
+            if remaining <= 0:
+                break
             key = self.keyring.acquire(exclude=tried) if len(self.keyring) else None
             token = key.value if key else (self.static_key or "none")
             if key:
@@ -42,14 +50,19 @@ class OpenAICompatibleProvider(BaseProvider):
                 method="POST",
             )
             t0 = time.time()
+            attempt_timeout = int(min(self.timeout, remaining))
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                    data = json.loads(r.read().decode("utf-8"))
+                data = json_watchdog(req, attempt_timeout, self.watchdog_grace)
                 if key:
                     self.keyring.report_success(key, int((data.get("usage") or {}).get("total_tokens") or 0))
                 data["_key_label"] = key.label if key else "static"
                 data["_latency"] = time.time() - t0
                 return data
+            except TimeoutError as e:
+                if key:
+                    self.keyring.report_failure(key, None, str(e))
+                last = ProviderError(str(e), retryable=True)
+                self.notify("warn", f"{self.name}: {e} — watchdog skip")
             except urllib.error.HTTPError as e:
                 detail = e.read().decode("utf-8", "ignore")[:300]
                 if key:

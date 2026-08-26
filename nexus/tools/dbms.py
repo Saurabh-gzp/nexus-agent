@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List
 
 from .base import Risk, ToolRegistry, ToolResult
+from .paths import in_workspace
 
 _WRITE = ("insert", "update", "delete", "drop", "alter", "create", "replace", "pragma")
 
@@ -19,7 +20,7 @@ class DbmsTools:
         if not p.is_absolute():
             p = self.root / p
         p = p.resolve()
-        if not str(p).startswith(str(self.root)):
+        if not in_workspace(p, self.root):
             raise ValueError("db path escapes workspace")
         if p.suffix.lower() not in {".db", ".sqlite", ".sqlite3"}:
             raise ValueError("only .db / .sqlite / .sqlite3 allowed")

@@ -128,7 +128,8 @@ class ShellTools:
             if not self.approval_cb("shell_dangerous", command):
                 return ToolResult(False, error="User denied dangerous command.")
         wd = (self.root / cwd).resolve() if not Path(cwd).is_absolute() else Path(cwd)
-        if not str(wd).startswith(str(self.root)):
+        from .paths import in_workspace as _in_ws
+        if not _in_ws(wd, self.root):
             wd = self.root
         wd.mkdir(parents=True, exist_ok=True)
         try:
@@ -447,6 +448,25 @@ class ShellTools:
         import time as _time
         import urllib.request as _ur
         import urllib.error as _ue
+        from .paths import in_workspace as _in_ws
+
+        raw_cmd = (command or "").strip()
+        if SHELL_DELETE.search(raw_cmd) or self.is_dangerous(raw_cmd):
+            return ToolResult(False, error="BLOCKED: start_server refuses delete/dangerous commands")
+        if re.search(r"[;&|`$]|&&|\|\||\n", raw_cmd):
+            return ToolResult(False, error="BLOCKED: start_server allows only python -m http.server")
+        http_ok = re.match(
+            r"^python3?\s+-m\s+http\.server(?:\s+\d+)?(?:\s+--bind\s+\S+)?(?:\s+--directory\s+\S+)?$",
+            raw_cmd, re.I)
+        if not http_ok:
+            return ToolResult(False, error=(
+                "BLOCKED: start_server only launches python3 -m http.server "
+                "(pass directory=/projects/foo). Arbitrary command= is not executed."))
+        dm = re.search(r"--directory\s+(\S+)", raw_cmd)
+        drel = (dm.group(1) if dm else directory) or "."
+        dabs = (self.root / drel).resolve() if not Path(drel).is_absolute() else Path(drel).resolve()
+        if not _in_ws(dabs, self.root):
+            return ToolResult(False, error="BLOCKED: start_server directory escapes workspace")
 
         # if requested port is already bound, pick a free one (live: stale
         # Varanasi server occupied :8000 so Ops Lab "verified" the wrong site)
@@ -463,12 +483,13 @@ class ShellTools:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
             s.close()
-        command = re.sub(r"(http\.server\s+)\d+", rf"\g<1>{port}", command or "")
+        argv = [sys.executable, "-m", "http.server", str(port),
+                "--bind", "127.0.0.1", "--directory", str(dabs)]
         logf = self.root / f".server_{port}.log"
-        cmd = f"cd {self.root} && {command}"
         try:
             with open(logf, "w", encoding="utf-8") as lf:
-                proc = subprocess.Popen(cmd, shell=True, stdout=lf, stderr=subprocess.STDOUT,
+                proc = subprocess.Popen(argv, cwd=str(self.root), stdout=lf,
+                                       stderr=subprocess.STDOUT,
                                        start_new_session=True,
                                        env={**os.environ, "PYTHONUNBUFFERED": "1"})
         except Exception as e:  # noqa: BLE001
