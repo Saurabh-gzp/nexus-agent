@@ -1043,6 +1043,10 @@ class TestV12:
         assert "290,564" in quick_math("8282+282282")
         assert quick_math("hello world") is None
         assert quick_math("(45*2)+10") is not None and "100" in quick_math("(45*2)+10")
+        # Test error handling (ZeroDivisionError, SyntaxError, TypeError, ValueError)
+        assert quick_math("1/0") is None
+        assert quick_math("1++") is None
+        assert quick_math("1+((2)") is None
 
     def test_router_guard_forces_math_and_device(self):
         from nexus.orchestrator.engine import router_guard

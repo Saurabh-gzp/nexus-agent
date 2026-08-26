@@ -112,7 +112,7 @@ def quick_math(goal: str) -> Optional[str]:
                 .replace(",", ""))
     try:
         val = eval(expr, {"__builtins__": {}}, {})  # noqa: S307 — sirf digits/operators allow hue
-    except Exception:
+    except (ArithmeticError, SyntaxError, TypeError, ValueError):
         return None
     if isinstance(val, (int, float)):
         pretty = f"{val:,}" if isinstance(val, int) else f"{val:,.6f}".rstrip("0").rstrip(".")
