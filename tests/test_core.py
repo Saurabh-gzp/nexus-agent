@@ -1904,3 +1904,49 @@ class TestGitMutationsAndCheckpoint:
         p = tmp_path / "checkpoints" / "abc123.json"
         assert p.exists()
         assert json.loads(p.read_text())["task_id"] == "abc123"
+
+
+class TestSpecialistsExceptionHandling:
+    def test_router_handles_provider_error_on_response_format(self):
+        from unittest.mock import MagicMock
+        from nexus.providers.base import ProviderError
+        from nexus.agents.specialists import RouterAgent
+
+        ctx = MagicMock()
+        mock_llm = MagicMock()
+        ctx.llm = mock_llm
+        agent = RouterAgent(ctx)
+
+        mock_llm.ask.side_effect = [
+            ProviderError("response_format not supported"),
+            '{"intent": "chat", "complexity": "trivial", "needs_orchestration": false}'
+        ]
+
+        result = agent.route("hello")
+        assert result["intent"] == "chat"
+        assert result["needs_orchestration"] is False
+        assert mock_llm.ask.call_count == 2
+
+    def test_supervisor_handles_provider_error_on_response_format(self):
+        from unittest.mock import MagicMock
+        from nexus.providers.base import ProviderError
+        from nexus.agents.specialists import SupervisorAgent
+
+        ctx = MagicMock()
+        mock_llm = MagicMock()
+        ctx.llm = mock_llm
+        ctx.skills = None
+        ctx.rag = None
+        ctx.config.workspace = "/tmp"
+        ctx.config.get.return_value = 5
+        agent = SupervisorAgent(ctx)
+
+        mock_llm.ask.side_effect = [
+            ProviderError("response_format not supported"),
+            '{"goal_restated": "test", "tasks": [{"id": "t1", "title": "do it", "agent": "worker"}]}'
+        ]
+
+        plan = agent.plan("test goal")
+        assert len(plan["tasks"]) == 1
+        assert plan["tasks"][0]["id"] == "t1"
+        assert mock_llm.ask.call_count == 2
